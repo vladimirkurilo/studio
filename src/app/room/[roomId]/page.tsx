@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from 'react';
@@ -20,84 +21,86 @@ export default function RoomControlPage() {
   const roomId = params.roomId as string;
   
   const { toast } = useToast();
-  const { user } = useHydratedAuthStore(state => ({ user: state.user }));
+  // const { user } = useHydratedAuthStore(state => ({ user: state.user })); // User not directly causing the issue here
 
   // Room store states
-  const getRoomById = useRoomStore(state => state.getRoomById);
+  const roomFromStore = useRoomStore(state => state.rooms.find(r => r.id === roomId));
   const toggleRoomControl = useRoomStore(state => state.toggleRoomControl);
   const connectToRoomBLE = useRoomStore(state => state.connectToRoomBLE);
   const disconnectFromRoomBLE = useRoomStore(state => state.disconnectFromRoomBLE);
   const sendBLECommand = useRoomStore(state => state.sendBLECommand);
   const bleStates = useRoomStore(state => state.bleStates);
-  const currentRoomControls = useRoomStore(state => state.rooms.find(r => r.id === roomId)?.currentControls);
 
-
-  const [room, setRoom] = useState<RoomType | null | undefined>(undefined); // undefined for loading, null if not found
   const [bleState, setBleState] = useState<BLEDeviceState | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    const foundRoom = getRoomById(roomId);
-    setRoom(foundRoom);
-    if (foundRoom && bleStates[foundRoom.id]) {
-      setBleState(bleStates[foundRoom.id]);
-    } else if (foundRoom) {
-      // Initialize BLE state if not present (should be handled by store init)
-       setBleState({ connected: false, statusMessage: 'Disconnected' });
-    }
-  }, [roomId, getRoomById, bleStates]);
-  
-   // Effect to subscribe to room control changes
-  useEffect(() => {
-    if(room) {
-        const roomFromStore = getRoomById(room.id);
-        if (roomFromStore) {
-            setRoom(prevRoom => ({...prevRoom!, currentControls: roomFromStore.currentControls}));
-        }
-    }
-  }, [currentRoomControls, room, getRoomById]);
+    setIsClient(true);
+  }, []);
 
+  useEffect(() => {
+    if (roomFromStore) {
+      if (bleStates[roomFromStore.id]) {
+        setBleState(bleStates[roomFromStore.id]);
+      } else {
+        // Fallback if BLE state for this room isn't initialized in store (should be by initializeRooms)
+        setBleState({ connected: false, statusMessage: 'Disconnected' });
+      }
+    } else {
+      // Room not found or still loading, reset BLE state
+      setBleState(null);
+    }
+  }, [roomFromStore, bleStates]);
 
 
   const handleConnectBLE = async () => {
-    if (!room) return;
+    if (!roomFromStore) return;
     setIsConnecting(true);
-    toast({ title: "BLE", description: `Connecting to Room ${room.number}...` });
-    await connectToRoomBLE(room.id);
-    toast({ title: "BLE", description: `Connected to Room ${room.number}.` });
-    setIsConnecting(false);
+    toast({ title: "BLE", description: `Connecting to Room ${roomFromStore.number}...` });
+    try {
+      await connectToRoomBLE(roomFromStore.id);
+      toast({ title: "BLE", description: `Connected to Room ${roomFromStore.number}.` });
+    } catch (error) {
+      toast({ title: "BLE Connection Failed", description: (error as Error).message || "Could not connect.", variant: "destructive" });
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const handleDisconnectBLE = async () => {
-    if (!room) return;
-    await disconnectFromRoomBLE(room.id);
-    toast({ title: "BLE", description: `Disconnected from Room ${room.number}.` });
+    if (!roomFromStore) return;
+    await disconnectFromRoomBLE(roomFromStore.id);
+    toast({ title: "BLE", description: `Disconnected from Room ${roomFromStore.number}.` });
   };
 
   const handleOpenDoor = async () => {
-    if (!room || !bleState?.connected) {
+    if (!roomFromStore || !bleState?.connected) {
       toast({ title: "BLE Error", description: "Connect to room device first to open door.", variant: "destructive" });
       return;
     }
-    toast({ title: "Door Control", description: `Sending open command to Room ${room.number}...` });
-    await sendBLECommand(room.id, 'OPEN_DOOR');
-    // Toast for success/failure can be triggered by sendBLECommand or a returned status
-    toast({ title: "Door Control", description: `Door for Room ${room.number} opened.` });
+    toast({ title: "Door Control", description: `Sending open command to Room ${roomFromStore.number}...` });
+    await sendBLECommand(roomFromStore.id, 'OPEN_DOOR');
+    // Success/failure toast can be handled within sendBLECommand or via its return if more detailed status is needed
+    toast({ title: "Door Control", description: `Door for Room ${roomFromStore.number} opened.` });
   };
 
   const handleToggleControl = (control: keyof RoomType['currentControls']) => {
-    if (!room) return;
-    if (!bleState?.connected && control !== 'power') { // Allow power toggle even if not "connected" to simulate local switch
-        // For specific controls like light/AC, require BLE connection
-        toast({ title: "BLE Error", description: "Connect to room device to control amenities.", variant: "destructive" });
+    if (!roomFromStore) return;
+    if (!bleState?.connected && control !== 'power' && !roomFromStore.currentControls.power) { 
+        toast({ title: "BLE Error", description: "Connect to room device to control amenities, or ensure main power is on.", variant: "destructive" });
         return;
     }
-    toggleRoomControl(room.id, control);
-    const newStatus = !room.currentControls[control];
-    toast({ title: "Room Control", description: `${control.charAt(0).toUpperCase() + control.slice(1)} turned ${newStatus ? 'ON' : 'OFF'}.` });
+    toggleRoomControl(roomFromStore.id, control);
+    // The toast will reflect the action, the actual state change comes from the store update
+    const intendedNewStatus = !roomFromStore.currentControls[control];
+    toast({ title: "Room Control", description: `${control.charAt(0).toUpperCase() + control.slice(1)} turned ${intendedNewStatus ? 'ON' : 'OFF'}.` });
   };
 
-  if (room === undefined) {
+
+  if (!isClient) {
+    // Show skeleton during server render or initial hydration phase
+    // AuthGuard might also show its own skeleton, this is an additional fallback
     return (
       <AuthGuard allowedRoles={['guest']}>
         <div className="space-y-6">
@@ -109,8 +112,9 @@ export default function RoomControlPage() {
       </AuthGuard>
     );
   }
-
-  if (!room) {
+  
+  if (!roomFromStore) {
+    // After client hydration, if roomFromStore is still not found, it means the room doesn't exist.
     return (
       <AuthGuard allowedRoles={['guest']}>
         <div className="text-center py-10">
@@ -122,16 +126,13 @@ export default function RoomControlPage() {
     );
   }
   
-  // Verify if the current user actually booked this room (simplified check)
-  // In a real app, this would involve checking useBookingStore for a booking matching user.id and room.id
-  // For this prototype, we assume if they navigated here, they have access.
-
+  // At this point, roomFromStore is available and contains the latest data including currentControls.
   return (
     <AuthGuard allowedRoles={['guest']}>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">Room {room.number} Controls</h1>
-          <p className="text-muted-foreground">{room.type}</p>
+          <h1 className="text-3xl font-bold">Room {roomFromStore.number} Controls</h1>
+          <p className="text-muted-foreground">{roomFromStore.type}</p>
         </div>
 
         <Card className="shadow-lg">
@@ -172,9 +173,9 @@ export default function RoomControlPage() {
                 </Label>
                 <Switch
                   id="light-switch"
-                  checked={room.currentControls.light}
+                  checked={roomFromStore.currentControls.light}
                   onCheckedChange={() => handleToggleControl('light')}
-                  disabled={!bleState?.connected && !room.currentControls.power} // Light needs power
+                  disabled={!roomFromStore.currentControls.power && !bleState?.connected } // Light needs power OR direct BLE connection if power is master
                 />
               </div>
 
@@ -184,9 +185,9 @@ export default function RoomControlPage() {
                 </Label>
                 <Switch
                   id="ac-switch"
-                  checked={room.currentControls.ac}
+                  checked={roomFromStore.currentControls.ac}
                   onCheckedChange={() => handleToggleControl('ac')}
-                  disabled={!bleState?.connected && !room.currentControls.power} // AC needs power
+                  disabled={!roomFromStore.currentControls.power && !bleState?.connected } // AC needs power OR direct BLE
                 />
               </div>
               
@@ -196,14 +197,14 @@ export default function RoomControlPage() {
                 </Label>
                 <Switch
                   id="power-switch"
-                  checked={room.currentControls.power}
+                  checked={roomFromStore.currentControls.power}
                   onCheckedChange={() => handleToggleControl('power')}
-                  // Main power can always be toggled (simulates a physical master switch if BLE fails)
+                  // Main power can ideally always be toggled locally, or via BLE if available
                 />
               </div>
             </div>
-            {!room.currentControls.power && (
-                <p className="text-sm text-destructive text-center mt-2">Main power is off. Light and AC are disabled.</p>
+            {!roomFromStore.currentControls.power && (
+                <p className="text-sm text-destructive text-center mt-2">Main power is off. Light and AC might be disabled unless controlled directly via BLE (if connected).</p>
             )}
           </CardContent>
         </Card>
@@ -211,3 +212,4 @@ export default function RoomControlPage() {
     </AuthGuard>
   );
 }
+
