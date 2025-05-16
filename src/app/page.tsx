@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -36,6 +37,8 @@ const bookingSchema = z.object({
 
 type BookingFormValues = z.infer<typeof bookingSchema>;
 
+const ANY_ROOM_TYPE_VALUE = "_any_room_type_"; // Special value for "Any Room Type"
+
 export default function BookingPage() {
   const rooms = useRoomStore(state => state.rooms);
   const { addBooking } = useBookingStore();
@@ -55,6 +58,7 @@ export default function BookingPage() {
       checkInDate: new Date(),
       checkOutDate: new Date(new Date().setDate(new Date().getDate() + 1)),
       guestPreferences: user?.name ? `Repeat guest ${user.name}` : "New guest, prefers quiet room.",
+      roomType: ANY_ROOM_TYPE_VALUE, // Default to "Any Room Type"
     },
   });
 
@@ -63,19 +67,15 @@ export default function BookingPage() {
   useEffect(() => {
     const [checkIn, checkOut, roomTypeFilter] = watchedDates;
     if (checkIn && checkOut) {
-      // Filter rooms based on availability (mocked logic for now)
-      // In a real app, this would involve checking existing bookings against dates
       const filtered = rooms.filter(room => 
         room.status === 'available' && 
-        (!roomTypeFilter || room.type === roomTypeFilter)
+        (!roomTypeFilter || roomTypeFilter === ANY_ROOM_TYPE_VALUE || room.type === roomTypeFilter)
       );
       setAvailableRooms(filtered);
     }
   }, [watchedDates, rooms]);
 
   const handleSearch = (data: BookingFormValues) => {
-    // This function is implicitly called by useEffect on date/type change.
-    // Could be used for an explicit search button if desired.
     toast({ title: "Searching Rooms", description: "Finding available rooms for your dates." });
   };
 
@@ -101,7 +101,6 @@ export default function BookingPage() {
       const suggestion = await roomAssignmentSuggestions(input);
       setAiSuggestion(suggestion);
       toast({ title: "AI Suggestion Ready", description: `AI suggests room ${suggestion.suggestedRoom}. Reason: ${suggestion.reasoning}` });
-      // Optionally, pre-select the AI suggested room if it's in availableRooms
       const suggestedRoom = availableRooms.find(r => r.number === suggestion.suggestedRoom);
       if (suggestedRoom) {
           // Highlight or pre-select this room in the UI
@@ -121,7 +120,7 @@ export default function BookingPage() {
       router.push('/login');
       return;
     }
-    setSelectedRoomForBooking(room); // This will open the dialog via its 'open' prop logic
+    setSelectedRoomForBooking(room); 
   };
   
   const confirmBooking = async () => {
@@ -135,8 +134,8 @@ export default function BookingPage() {
 
     if (bookingResult) {
       toast({ title: "Booking Confirmed!", description: `Room ${selectedRoomForBooking.number} is yours from ${format(checkInDate, 'PPP')} to ${format(checkOutDate, 'PPP')}.` });
-      setSelectedRoomForBooking(null); // Close dialog
-      router.push(`/my-booking`); // Navigate to a page showing this booking
+      setSelectedRoomForBooking(null); 
+      router.push(`/my-booking`); 
     } else {
       toast({ title: "Booking Failed", description: "Could not book the room. It might no longer be available.", variant: "destructive" });
     }
@@ -203,12 +202,12 @@ export default function BookingPage() {
                 name="roomType"
                 control={control}
                 render={({ field }) => (
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value || ANY_ROOM_TYPE_VALUE}>
                     <SelectTrigger id="roomType">
                       <SelectValue placeholder="Any Room Type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Any Room Type</SelectItem>
+                      <SelectItem value={ANY_ROOM_TYPE_VALUE}>Any Room Type</SelectItem>
                       {roomTypes.map(type => <SelectItem key={type} value={type}>{type}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -306,3 +305,5 @@ export default function BookingPage() {
     </div>
   );
 }
+
+    
