@@ -37,7 +37,7 @@ const bookingSchema = z.object({
 
 type BookingFormValues = z.infer<typeof bookingSchema>;
 
-const ANY_ROOM_TYPE_VALUE = "_any_room_type_"; // Special value for "Any Room Type"
+const ANY_ROOM_TYPE_VALUE = "_any_room_type_";
 
 export default function BookingPage() {
   const rooms = useRoomStore(state => state.rooms);
@@ -58,22 +58,23 @@ export default function BookingPage() {
       checkInDate: new Date(),
       checkOutDate: new Date(new Date().setDate(new Date().getDate() + 1)),
       guestPreferences: user?.name ? `Repeat guest ${user.name}` : "New guest, prefers quiet room.",
-      roomType: ANY_ROOM_TYPE_VALUE, // Default to "Any Room Type"
+      roomType: ANY_ROOM_TYPE_VALUE,
     },
   });
 
-  const watchedDates = watch(["checkInDate", "checkOutDate", "roomType"]);
+  const watchedCheckInDate = watch("checkInDate");
+  const watchedCheckOutDate = watch("checkOutDate");
+  const watchedRoomType = watch("roomType");
 
   useEffect(() => {
-    const [checkIn, checkOut, roomTypeFilter] = watchedDates;
-    if (checkIn && checkOut) {
+    if (watchedCheckInDate && watchedCheckOutDate) {
       const filtered = rooms.filter(room => 
         room.status === 'available' && 
-        (!roomTypeFilter || roomTypeFilter === ANY_ROOM_TYPE_VALUE || room.type === roomTypeFilter)
+        (!watchedRoomType || watchedRoomType === ANY_ROOM_TYPE_VALUE || room.type === watchedRoomType)
       );
       setAvailableRooms(filtered);
     }
-  }, [watchedDates, rooms]);
+  }, [watchedCheckInDate, watchedCheckOutDate, watchedRoomType, rooms]);
 
   const handleSearch = (data: BookingFormValues) => {
     toast({ title: "Searching Rooms", description: "Finding available rooms for your dates." });
@@ -127,7 +128,7 @@ export default function BookingPage() {
     if (!selectedRoomForBooking || !user) return;
     
     setIsBooking(true);
-    const { checkInDate, checkOutDate } = watch();
+    const { checkInDate, checkOutDate } = watch(); // Get current values for booking
 
     const bookingResult = await addBooking(user.id, user.name, selectedRoomForBooking, checkInDate, checkOutDate);
     setIsBooking(false);
@@ -305,5 +306,3 @@ export default function BookingPage() {
     </div>
   );
 }
-
-    
